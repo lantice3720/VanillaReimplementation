@@ -5,6 +5,7 @@ import net.goldenstack.window.Views;
 import net.minestom.server.ServerProcess;
 import net.minestom.server.event.Event;
 import net.minestom.server.event.EventNode;
+import net.minestom.server.event.inventory.InventoryCloseEvent;
 import net.minestom.server.event.inventory.InventoryItemChangeEvent;
 import net.minestom.server.event.inventory.InventoryPreClickEvent;
 import net.minestom.server.inventory.AbstractInventory;
@@ -27,36 +28,19 @@ public record CraftingRecipes(@NotNull CraftingFeature.Recipes recipes, @NotNull
     public EventNode<Event> init() {
         EventNode<Event> node = EventNode.all("vri:recipes-inventory");
 
-        node.addListener(InventoryItemChangeEvent.class, event -> {
-            if (event.getInventory() instanceof PlayerInventory inv) {
-                var crafting = Views.player().crafting();
-
-                InventoryView input = crafting.input();
-                InventoryView.Singular output = crafting.output();
-
-                if (!crafting.isValidExternal(event.getSlot())) return;
-
-                Recipe.Crafting recipe = searchRecipe(2, 2, input.collect(inv));
-
-                output.set(inv, recipe != null ? recipe.result() : ItemStack.AIR);
-            } else if (event.getInventory() instanceof Inventory inv && inv.getInventoryType() == InventoryType.CRAFTING) {
-                var crafting = Views.craftingTable();
-
-                InventoryView input = crafting.input();
-                InventoryView.Singular output = crafting.output();
-
-                if (!crafting.isValidExternal(event.getSlot())) return;
-
-                Recipe.Crafting recipe = searchRecipe(3, 3, input.collect(inv));
-
-                output.set(inv, recipe != null ? recipe.result() : ItemStack.AIR);
-            }
-        }).addListener(InventoryPreClickEvent.class, addOutputSlot(
+        node.addListener(InventoryItemChangeEvent.class, addSquareInputSlots(
                 inv -> inv instanceof PlayerInventory,
-                        Views.player().crafting().input(),
-                        Views.player().crafting().output()
-                ))
-        .addListener(InventoryPreClickEvent.class, addOutputSlot(
+                Views.player().crafting().input(),
+                Views.player().crafting().output()
+        )).addListener(InventoryItemChangeEvent.class, addSquareInputSlots(
+                inv -> inv instanceof Inventory crafting && crafting.getInventoryType() == InventoryType.CRAFTING,
+                Views.craftingTable().input(),
+                Views.craftingTable().output()
+        )).addListener(InventoryPreClickEvent.class, addOutputSlot(
+                inv -> inv instanceof PlayerInventory,
+                Views.player().crafting().input(),
+                Views.player().crafting().output()
+        )).addListener(InventoryPreClickEvent.class, addOutputSlot(
                 inv -> inv instanceof Inventory crafting && crafting.getInventoryType() == InventoryType.CRAFTING,
                 Views.craftingTable().input(),
                 Views.craftingTable().output()
@@ -65,7 +49,23 @@ public record CraftingRecipes(@NotNull CraftingFeature.Recipes recipes, @NotNull
         return node;
     }
 
-    private static @NotNull Consumer<InventoryPreClickEvent> addOutputSlot(@NotNull Predicate<AbstractInventory> predicate, @NotNull InventoryView input, @NotNull InventoryView.Singular output) {
+    // Assumes that the input region is square.
+    private @NotNull Consumer<InventoryItemChangeEvent> addSquareInputSlots(@NotNull Predicate<AbstractInventory> predicate, @NotNull InventoryView input, @NotNull InventoryView.Singular output) {
+        return event -> {
+            final AbstractInventory inv = event.getInventory();
+
+            if (!predicate.test(inv)) return;
+            if (!input.isValidExternal(event.getSlot()) && !output.isValidExternal(event.getSlot())) return;
+
+            int length = (int) Math.round(Math.sqrt(input.size()));
+
+            Recipe.Crafting recipe = searchRecipe(length, length, input.collect(inv));
+
+            output.set(inv, recipe != null ? recipe.result() : ItemStack.AIR);
+        };
+    }
+
+    private @NotNull Consumer<InventoryPreClickEvent> addOutputSlot(@NotNull Predicate<AbstractInventory> predicate, @NotNull InventoryView input, @NotNull InventoryView.Singular output) {
         return event -> {
             final AbstractInventory inv = event.getInventory();
 
